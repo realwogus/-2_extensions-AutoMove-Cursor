@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Convenient Cursor",
+  "version": "1.1.1",
+  "description": "Move the cursor to the most likely chat input with a keyboard shortcut.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "icons": {
+    "16": "icons/enabled16.png",
+    "32": "icons/enabled32.png",
+    "48": "icons/enabled48.png",
+    "128": "icons/enabled128.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Convenient Cursor: 켜짐",
+    "default_icon": {
+      "16": "icons/enabled16.png",
+      "32": "icons/enabled32.png"
+    }
+  },
+  "commands": {
+    "focus-chat-input": {
+      "suggested_key": {
+        "default": "Alt+L",
+        "mac": "Option+L"
+      },
+      "description": "Focus the chat input"
+    }
+  }
+}
