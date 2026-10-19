@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MPL-2.0
+
 (function focusChatInput() {
   const CHAT_WORDS = [
     "chat",
