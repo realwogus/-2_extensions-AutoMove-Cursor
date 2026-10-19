@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
-(function focusChatInput() {
+(function toggleChatInputFocus() {
   const CHAT_WORDS = [
     "chat",
     "message",
@@ -57,6 +57,116 @@
     return element.isContentEditable;
   }
 
+  function activeElement() {
+    let active = document.activeElement;
+
+    while (active?.shadowRoot?.activeElement) {
+      active = active.shadowRoot.activeElement;
+    }
+
+    return active;
+  }
+
+  function focusedEditable() {
+    const active = activeElement();
+    if (!(active instanceof HTMLElement)) return null;
+    if (isEditable(active)) return active;
+
+    return active.closest("[contenteditable='true'], [contenteditable='plaintext-only']");
+  }
+
+  function composedParent(element) {
+    if (element.parentElement) return element.parentElement;
+
+    const root = element.getRootNode();
+    return root instanceof ShadowRoot ? root.host : null;
+  }
+
+  function allElements(root = document) {
+    const elements = [...root.querySelectorAll("*")];
+    const found = [...elements];
+
+    for (const element of elements) {
+      if (element.shadowRoot) found.push(...allElements(element.shadowRoot));
+    }
+
+    return found;
+  }
+
+  function isScrollable(element) {
+    if (!(element instanceof HTMLElement) || isEditable(element)) return false;
+
+    const { overflowY } = getComputedStyle(element);
+    return (
+      ["auto", "scroll", "overlay"].includes(overflowY) &&
+      element.scrollHeight > element.clientHeight + 1 &&
+      isVisible(element)
+    );
+  }
+
+  function isPrimaryScrollArea(element) {
+    const isPageScroller =
+      element === document.scrollingElement &&
+      element.scrollHeight > element.clientHeight + 1;
+
+    if (!isPageScroller && !isScrollable(element)) return false;
+
+    const minimumHeight = Math.min(240, innerHeight * 0.4);
+    return element.getBoundingClientRect().height >= minimumHeight;
+  }
+
+  function scrollTargetFor(source) {
+    for (let parent = composedParent(source); parent; parent = composedParent(parent)) {
+      if (isPrimaryScrollArea(parent)) return parent;
+    }
+
+    const sourceRect = source.getBoundingClientRect();
+    const sourceCenterX = (sourceRect.left + sourceRect.right) / 2;
+    const viewportArea = Math.max(innerWidth * innerHeight, 1);
+    const scrollableElements = allElements().filter(isScrollable);
+    const pageScroller = document.scrollingElement;
+
+    if (
+      pageScroller instanceof HTMLElement &&
+      pageScroller.scrollHeight > pageScroller.clientHeight + 1 &&
+      !scrollableElements.includes(pageScroller)
+    ) {
+      scrollableElements.push(pageScroller);
+    }
+
+    const primaryAreas = scrollableElements.filter(isPrimaryScrollArea);
+    const candidates = primaryAreas.length > 0 ? primaryAreas : scrollableElements;
+
+    const scoreScrollTarget = (element) => {
+      const rect = element.getBoundingClientRect();
+      const containsSourceX = rect.left <= sourceCenterX && sourceCenterX <= rect.right;
+      const centerX = (rect.left + rect.right) / 2;
+      let points = 0;
+
+      if (containsSourceX) points += 200;
+      points += (rect.width * rect.height) / viewportArea * 80;
+      points += rect.width / Math.max(innerWidth, 1) * 40;
+      points += rect.height / Math.max(innerHeight, 1) * 30;
+      points -= Math.abs(centerX - sourceCenterX) / Math.max(innerWidth, 1) * 100;
+
+      return points;
+    };
+
+    return candidates.sort((a, b) => scoreScrollTarget(b) - scoreScrollTarget(a))[0]
+      ?? document.scrollingElement;
+  }
+
+  function focusForScrolling(element) {
+    if (!(element instanceof HTMLElement)) return;
+
+    const hadTabIndex = element.hasAttribute("tabindex");
+    if (!hadTabIndex) element.setAttribute("tabindex", "-1");
+
+    element.focus({ preventScroll: true });
+
+    if (!hadTabIndex) element.removeAttribute("tabindex");
+  }
+
   function accessibleText(element) {
     return [
       element.getAttribute("aria-label"),
@@ -97,13 +207,8 @@
   function editableElements(root = document) {
     const selector = [
       "textarea",
-      "input[type='text']",
-      "input[type='search']",
-      "input[type='url']",
-      "input[type='email']",
-      "input:not([type])",
-      "[contenteditable='true']",
-      "[contenteditable='plaintext-only']",
+      "input",
+      "[contenteditable]",
     ].join(",");
 
     const found = [...root.querySelectorAll(selector)];
@@ -118,7 +223,16 @@
   function placeCaretAtEnd(element) {
     element.focus({ preventScroll: true });
 
-    if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
+    if (element instanceof HTMLTextAreaElement) {
+      const end = element.value.length;
+      element.setSelectionRange(end, end);
+      return;
+    }
+
+    if (
+      element instanceof HTMLInputElement &&
+      ["text", "search", "url", "tel", "password"].includes(element.type)
+    ) {
       const end = element.value.length;
       element.setSelectionRange(end, end);
       return;
@@ -132,6 +246,15 @@
       selection?.removeAllRanges();
       selection?.addRange(range);
     }
+  }
+
+  const focused = focusedEditable();
+
+  if (focused) {
+    const scrollTarget = scrollTargetFor(focused);
+    focused.blur();
+    focusForScrolling(scrollTarget);
+    return;
   }
 
   const candidates = editableElements().filter(
